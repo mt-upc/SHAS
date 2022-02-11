@@ -1,22 +1,15 @@
 
-# Supervised Hybrid Audio Segmentation (SHAS)
+# SHAS: Approaching optimal Segmentation for End-to-End Speech Translation
 
-In this repo you can find the code of the Supervised Hybrid Audio Segmentation (SHAS) method for End-to-End Speech Translation, proposed in [Tsiamas et al. (2022)](). You can use our method with pre-trained models to segment a collection of audio files or train and fine-tune our method on your own segmented data. We provide instructions to replicate our results from the paper on MuST-C en-de and mTEDx es-en, fr-en, it-en, pt-en. You can also find easy-to-use implementations of other segmentation methods, like fixed-length, VAD, and the hybrid methods of [Potapczyk and Przybysz (2020)](https://aclanthology.org/2020.iwslt-1.9/), [Gállego et al. (2021)](https://aclanthology.org/2021.iwslt-1.11/), and [Gaido et al. (2021)](https://aclanthology.org/2021.iwslt-1.11/).
+In this repo you can find the code of the Supervised Hybrid Audio Segmentation (SHAS) method for End-to-End Speech Translation, proposed in [Tsiamas et al. (2022)](https://arxiv.org/abs/2202.04774). You can use our method with pre-trained models to segment a collection of audio files or train and fine-tune our method on your own segmented data. We provide instructions to replicate our results from the paper on MuST-C en-de and mTEDx es-en, fr-en, it-en, pt-en. You can also find easy-to-use implementations of other segmentation methods, like fixed-length, VAD, and the hybrid methods of [Potapczyk and Przybysz (2020)](https://aclanthology.org/2020.iwslt-1.9/), [Gállego et al. (2021)](https://aclanthology.org/2021.iwslt-1.11/), and [Gaido et al. (2021)](https://aclanthology.org/2021.iwslt-1.11/).
 
 Follow the instructions [here](#usage) to segment a collection of audio files, or the instruction [here](#more-extensive-usage) to replicate the results of the paper.
 
 ## Abstract
 
 <em>
-Speech translation models are unable to directly process long audios, like TED talks, which have to be split into shorter segments. Speech translation datasets provide manual segmentations of the audios, which are not available in real-world scenarios, and existing segmentation methods usually significantly reduce translation quality at inference time. To bridge the gap between the manual segmentation of training and the automatic one at inference, we propose SHAS, a supervised and hybrid method that can effectively learn the optimal segmentation from any manually segmented speech corpus. First, we train a classifier on speech representations from a pre-trained wav2vec 2.0 to identify the included frames in a segmentation. Then, the optimal splitting points are found by a probabilistic Divide-and-Conquer algorithm that progressively splits at the frame of lowest probability until all segments are below a pre-specified length. Experiments on MuST-C and mTEDx show that the translation of the segments produced by our method approaches the quality of the manual segmentation on 5 languages pairs. Namely, SHAS retains 95-98$\%$ of the manual segmentation's BLEU score, compared to the 87-93$\%$ of the best existing methods. Our method is additionally generalizable to different domains and achieves high zero-shot performance in unseen languages.
+Speech translation models are unable to directly process long audios, like TED talks, which have to be split into shorter segments. Speech translation datasets provide manual segmentations of the audios, which are not available in real-world scenarios, and existing segmentation methods usually significantly reduce translation quality at inference time. To bridge the gap between the manual segmentation of training and the automatic one at inference, we propose Supervised Hybrid Audio Segmentation (SHAS), a method that can effectively learn the optimal segmentation from any manually segmented speech corpus. First, we train a classifier to identify the included frames in a segmentation, using speech representations from a pre-trained wav2vec 2.0. The optimal splitting points are then found by a probabilistic Divide-and-Conquer algorithm that progressively splits at the frame of lowest probability until all segments are below a pre-specified length. Experiments on MuST-C and mTEDx show that the translation of the segments produced by our method approaches the quality of the manual segmentation on 5 languages pairs. Namely, SHAS retains 95-98% of the manual segmentation's BLEU score, compared to the 87-93% of the best existing methods. Our method is additionally generalizable to different domains and achieves high zero-shot performance in unseen languages.
 </em>
-
-## SHAS Method
-
-<p align="center" width="100%">
-    <img width="50%" src=/readme_figures/segm_method.png>
-</p>
-
 
 ## Results
 
@@ -29,7 +22,14 @@ Speech translation models are unable to directly process long audios, like TED t
 If you find SHAS or the contents of this repo useful for your research, please consider citing:
 
 ```
-
+@misc{tsiamas2022shas,
+      title={SHAS: Approaching optimal Segmentation for End-to-End Speech Translation}, 
+      author={Ioannis Tsiamas and Gerard I. Gállego and José A. R. Fonollosa and Marta R. Costa-jussà},
+      year={2022},
+      eprint={2202.04774},
+      archivePrefix={arXiv},
+      primaryClass={cs.SD}
+}
 ```
 
 ## Usage
