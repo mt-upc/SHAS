@@ -71,7 +71,7 @@ python ${SEGM_ROOT}/src/eval_scripts/original_segmentation_to_xml.py \
 
 # activate the secondary python2 env
 eval "$(conda shell.bash hook)"
-conda activate p2-audio-segmentation
+conda activate p2-shas
 
 # align the hypotheses with the references
 bash ${MWERSEGMENTER_ROOT}/segmentBasedOnMWER.sh \
@@ -86,7 +86,7 @@ bash ${MWERSEGMENTER_ROOT}/segmentBasedOnMWER.sh \
 
 # re-activate main environment
 eval "$(conda shell.bash hook)"
-conda activate audio-segmentation
+conda activate shas
 
 # Obtain the BLEU score of the aligned hypotheses and references
 python ${SEGM_ROOT}/src/eval_scripts/score_translation.py \

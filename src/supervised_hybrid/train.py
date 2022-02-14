@@ -37,7 +37,7 @@ def train(args):
 
     if args.log_wandb:
         run = wandb.init(
-            project="audio_segmentation",
+            project="shas",
             config=vars(args),
             name=experiment_name,
             dir=str(experiment_path),

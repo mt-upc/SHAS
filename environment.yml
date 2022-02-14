@@ -1,4 +1,4 @@
-name: hsas
+name: shas
 
 channels:
   - pytorch
