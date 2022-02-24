@@ -215,7 +215,7 @@ For translating the custom segmentations we are using the [Joint Speech-to-Text 
 # joint-s2t-mustc-en-de
 en_de_model_path=${ST_MODELS_PATH}/joint-s2t-mustc-en-de
 mkdir -p $en_de_model_path
-for file in {checkpoint_ave_10.pt,config.yaml,src_dict.txt,dict.txt,spm.model}; docheck
+for file in {checkpoint_ave_10.pt,config.yaml,src_dict.txt,dict.txt,spm.model}; do
   wget https://dl.fbaipublicfiles.com/joint_speech_text_4_s2t/must_c/en_de/${file} -O $en_de_model_path/${file}
 done
 # joint-s2t-multilingual
