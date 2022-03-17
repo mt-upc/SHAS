@@ -226,7 +226,7 @@ def segment(args):
             dataloader = DataLoader(
                 dataset,
                 batch_size=args.inference_batch_size,
-                num_workers=max(cpu_count() // 2, 4),
+                num_workers=min(cpu_count() // 2, 4),
                 shuffle=False,
                 drop_last=False,
                 collate_fn=segm_collate_fn,
@@ -234,7 +234,6 @@ def segment(args):
 
             # get frame segmentation frame probabilities in the output space
             probs, _ = infer(
-                wav_path.name,
                 wav2vec_model,
                 sfc_model,
                 dataloader,
