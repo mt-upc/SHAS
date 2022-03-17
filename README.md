@@ -155,7 +155,7 @@ conda activate shas
 We are using fairseq for Speech Translation. Install our fork of fairseq:
 
 ```bash
-git clone -b audio-segment-2022 https://github.com/mt-upc/fairseq-internal.git ${FAIRSEQ_ROOT}
+git clone -b shas https://github.com/mt-upc/fairseq-internal.git ${FAIRSEQ_ROOT}
 pip install --editable ${FAIRSEQ_ROOT}
 ```
 
