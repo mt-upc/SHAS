@@ -3,7 +3,7 @@
 
 In this repo you can find the code of the Supervised Hybrid Audio Segmentation (SHAS) method for End-to-End Speech Translation, proposed in [Tsiamas et al. (2022)](https://arxiv.org/abs/2202.04774). You can use our method with pre-trained models to segment a collection of audio files or train and fine-tune our method on your own segmented data. We provide instructions to replicate our results from the paper on MuST-C en-de and mTEDx es-en, fr-en, it-en, pt-en. You can also find easy-to-use implementations of other segmentation methods, like fixed-length, VAD, and the hybrid methods of [Potapczyk and Przybysz (2020)](https://aclanthology.org/2020.iwslt-1.9/), [Gállego et al. (2021)](https://aclanthology.org/2021.iwslt-1.11/), and [Gaido et al. (2021)](https://aclanthology.org/2021.iwslt-1.11/).
 
-Follow the instructions [here](#usage) to segment a collection of audio files, or the instruction [here](#more-extensive-usage) to replicate the results of the paper.
+Follow the instructions [here](#usage) to segment a collection of audio files, or the instructions [here](#more-extensive-usage) to replicate the results of the paper.
 
 ## Abstract
 
