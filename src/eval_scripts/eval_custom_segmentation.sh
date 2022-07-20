@@ -23,7 +23,7 @@ elif [[ $st_model_basename == "joint-s2t-multilingual" ]]; then
 fi
 
 # Prepare the tsv file from the custom segmentation yaml
-python ${SEGM_ROOT}/src/eval_scripts/prepare_custom_dataset.py \
+python ${SHAS_ROOT}/src/eval_scripts/prepare_custom_dataset.py \
     -y $path_to_custom_segmentation_yaml \
     -w $path_to_wavs \
     -l $tgt_lang \
@@ -31,7 +31,7 @@ python ${SEGM_ROOT}/src/eval_scripts/prepare_custom_dataset.py \
 
 # Translate using the Speech Trasnlation model
 if [[ $st_model_basename == "joint-s2t-mustc-en-de" ]]; then
-    python ${FAIRSEQ_ROOT}/fairseq_cli/generate.py $working_dir \
+    fairseq-generate $working_dir \
         --task speech_text_joint_to_text \
         --max-tokens 100000 \
         --max-source-positions 12000 \
@@ -60,10 +60,10 @@ elif [[ $st_model_basename == "joint-s2t-multilingual" ]]; then
 fi
 
 # Extract raw hypotheses from fairseq-generate output
-python ${SEGM_ROOT}/src/eval_scripts/format_generation_output.py \
+python ${SHAS_ROOT}/src/eval_scripts/format_generation_output.py \
     -p ${working_dir}/translations.txt
 
-python ${SEGM_ROOT}/src/eval_scripts/original_segmentation_to_xml.py \
+python ${SHAS_ROOT}/src/eval_scripts/original_segmentation_to_xml.py \
     -y $path_to_original_segmentation_yaml \
     -s $path_to_original_segment_transcriptions \
     -t $path_to_original_segment_translations \
@@ -71,7 +71,7 @@ python ${SEGM_ROOT}/src/eval_scripts/original_segmentation_to_xml.py \
 
 # activate the secondary python2 env
 eval "$(conda shell.bash hook)"
-conda activate p2-shas
+conda activate snakes27
 
 # align the hypotheses with the references
 bash ${MWERSEGMENTER_ROOT}/segmentBasedOnMWER.sh \
@@ -89,6 +89,4 @@ eval "$(conda shell.bash hook)"
 conda activate shas
 
 # Obtain the BLEU score of the aligned hypotheses and references
-python ${SEGM_ROOT}/src/eval_scripts/score_translation.py \
-    -g $working_dir \
-    -l $tgt_lang
+python ${SHAS_ROOT}/src/eval_scripts/score_translation.py $working_dir
