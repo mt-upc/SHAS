@@ -1,7 +1,7 @@
 import argparse
+from dataclasses import dataclass
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Tuple, Union
 
 import numpy as np
 import torch
@@ -9,181 +9,157 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from constants import HIDDEN_SIZE, TARGET_SAMPLE_RATE, NOISE_THRESHOLD
+from constants import HIDDEN_SIZE, TARGET_SAMPLE_RATE
 from data import FixedSegmentationDatasetNoTarget, segm_collate_fn
 from eval import infer
 from models import SegmentationFrameClassifer, prepare_wav2vec
 
 
-def trim(indices: list[int], probs: np.array, threshold: float) -> np.array:
-    """trims a segment to the first and last frames i, j that have a
-    segmentation frame probability greater than the threshold
+@dataclass
+class Segment:
+    start: float
+    end: float
+    probs: np.array
+    decimal: int = 4
+
+    @property
+    def duration(self):
+        return float(round((self.end - self.start) / TARGET_SAMPLE_RATE, self.decimal))
+
+    @property
+    def offset(self):
+        return float(round(self.start / TARGET_SAMPLE_RATE, self.decimal))
+
+    @property
+    def offset_plus_duration(self):
+        return round(self.offset + self.duration, self.decimal)
+
+
+def trim(sgm: Segment, threshold: float) -> Segment:
+    """reduces the segment to between the first and last points that are above the threshold
 
     Args:
-        indices (list[int]): the indices of the segment frames inside the wav
-        probs (np.array): the probabilities for all the frames in the wav
-        threshold (float): threshold above which a frame is classified as included
+        sgm (Segment): a segment
+        threshold (float): probability threshold
 
     Returns:
-        np.array: the indices of the segment after trimming
+        Segment: new reduced segment
     """
+    included_indices = np.where(sgm.probs > threshold)[0]
 
-    included_indices = np.where(probs[indices] > threshold)[0]
+    i = included_indices[0]
+    j = included_indices[-1] + 1
 
-    if not len(included_indices):
-        return []
+    sgm = Segment(sgm.start + i, sgm.start + j, sgm.probs[i:j])
 
-    real_start_idx = included_indices[0]
-    real_end_idx = included_indices[-1] + 1
-
-    indices = indices[real_start_idx:real_end_idx]
-
-    return indices
-
-
-def flatten(x: Union[list[list[int]], list[int]]) -> list[list[int]]:
-    """recursivelly flattens the collection of segments"""
-    if isinstance(x[0], list):
-        return [a for i in x for a in flatten(i)]
-    else:
-        return [x]
+    return sgm
 
 
 def split_and_trim(
-    current_indices: list[int], probs: np.array, split_idx: int, threshold: float
-) -> Tuple[list[int], list[int]]:
-    """splits the segment at the specified index and trims the resulting segments
+    sgm: Segment, split_idx: int, threshold: float
+) -> tuple[Segment, Segment]:
+    """splits the input segment at the split_idx and then trims and returns the two resulting segments
 
     Args:
-        indices (list[int]): the indices of the segment frames inside the wav
-        probs (np.array): the probabilities for all the frames in the wav
-        split_idx (int): the index at which to split the segment
-        threshold (float): threshold above which a frame is classified as included
+        sgm (Segment): input segment
+        split_idx (int): index to split the input segment
+        threshold (float): probability threshold
 
     Returns:
-        Tuple[list[int], list[int]]: the trimmed indices of the two new segments
+        tuple[Segment, Segment]: the two resulting segments
     """
-    new_indices_a = trim(current_indices[:split_idx], probs, threshold)
-    new_indices_b = trim(current_indices[split_idx + 1 :], probs, threshold)
-    return new_indices_a, new_indices_b
+
+    probs_a = sgm.probs[:split_idx]
+    sgm_a = Segment(sgm.start, sgm.start + len(probs_a), probs_a)
+
+    probs_b = sgm.probs[split_idx + 1 :]
+    sgm_b = Segment(sgm_a.end + 1, sgm.end, probs_b)
+
+    sgm_a = trim(sgm_a, threshold)
+    sgm_b = trim(sgm_b, threshold)
+
+    return sgm_a, sgm_b
 
 
-def probabilistic_dac(
+def pdac(
     probs: np.array,
     max_segment_length: float,
     min_segment_length: float,
     threshold: float,
-) -> list[list[int]]:
-    """Probabilistic Divide-and-Conquer algorithm.
-    It progressively splits at the frame of lowest probability until all segments
-    are below a max-segment-length.
+) -> list[Segment]:
+    """applies the probabilistic Divide-and-Conquer algorithm to split an audio
+    into segments satisfying the max-segment-length and min-segment-length conditions
 
     Args:
-        probs (np.array): the probabilities for all the frames in the wav
-        max_segment_length (float): Maximum allowed segment length for the potential segments
-            In seconds.
-        min_segment_length (float): Minimum allowed segment length for the potential segments
-            In seconds.
-        threshold (float): threshold above which a frame is classified as included
-            Used for trimming.
+        probs (np.array): the binary frame-level probabilities
+            output by the segmentation-frame-classifier
+        max_segment_length (float): the maximum length of a segment
+        min_segment_length (float): the minimum length of a segment
+        threshold (float): probability threshold
 
     Returns:
-        list[list[int]]: The resulting segments. Each segment is a list of indices (frames)
-            in the wav file.
+        list[Segment]: resulting segmentation
     """
 
-    size = len(probs)
-    indices = list(range(size))
+    segments = []
+    sgm = Segment(0, len(probs), probs)
+    sgm = trim(sgm, threshold)
 
-    # trim silent beginning and end
-    indices = trim(indices, probs, threshold)
+    def recusrive_split(sgm):
+        if sgm.duration < max_segment_length:
+            segments.append(sgm)
+        else:
+            j = 0
+            sorted_indices = np.argsort(sgm.probs)
+            while j < len(sorted_indices):
+                split_idx = sorted_indices[j]
+                split_prob = sgm.probs[split_idx]
+                if split_prob > threshold:
+                    segments.append(sgm)
+                    break
 
-    # start with a single segment
-    indices = [indices]
+                sgm_a, sgm_b = split_and_trim(sgm, split_idx, threshold)
+                if (
+                    sgm_a.duration > min_segment_length
+                    and sgm_b.duration > min_segment_length
+                ):
+                    recusrive_split(sgm_a)
+                    recusrive_split(sgm_b)
+                    break
+                j += 1
+            else:
+                segments.append(sgm)
 
-    cond = [True]
-    while any(cond):
+    recusrive_split(sgm)
 
-        for i, current_indices in enumerate(indices):
-
-            if cond[i]:
-
-                # find point of highest split probability
-                # and get the indices of the new segments after trimming
-                split_idx = probs[current_indices].argmin()
-                new_indices_a, new_indices_b = split_and_trim(
-                    current_indices, probs, split_idx, threshold
-                )
-
-                # check if the resulting segments are above the min_segment_length
-                j, sorted_probs_indices = 1, None
-                while (
-                    len(new_indices_a) / TARGET_SAMPLE_RATE < min_segment_length
-                    or len(new_indices_b) / TARGET_SAMPLE_RATE < min_segment_length
-                ) and j + 1 < len(current_indices):
-                    j += 1
-
-                    # sort if this is the first re-try
-                    if sorted_probs_indices is None:
-                        sorted_probs_indices = np.argsort(probs[current_indices])
-
-                    # try splitting in this index
-                    split_idx = sorted_probs_indices[j]
-                    new_indices_a, new_indices_b = split_and_trim(
-                        current_indices, probs, split_idx, threshold
-                    )
-
-                # if none of the indices satisfied the min conditions
-                # split at the initial point of the lowest probability
-                if j + 1 == len(current_indices):
-                    split_idx = probs[current_indices].argmin()
-                    new_indices_a, new_indices_b = split_and_trim(
-                        current_indices, probs, split_idx, threshold
-                    )
-
-                # replace the previous segment with the two new ones
-                indices[i] = []
-                if new_indices_a:
-                    indices[i].append(new_indices_a)
-                if new_indices_b:
-                    indices[i].append(new_indices_b)
-
-        # to list of lists
-        indices = flatten(indices)
-
-        # check if max_segment_length conditions is satisfied for every segment
-        cond = [len(ind) / TARGET_SAMPLE_RATE > max_segment_length for ind in indices]
-
-    return indices
+    return segments
 
 
-def produce_segmentation(indices: list[list[int]], wav_name: str) -> list[dict]:
-    """produces the segmentation yaml content from the indices of the probabilistic_dac
+def update_yaml_content(
+    yaml_content: list[dict], segments: list[Segment], wav_name: str
+) -> list[dict]:
+    """extends the yaml content with the segmentation of this wav file
 
     Args:
-        indices (list[list[int]]): output of the probabilistic_dac function
-        wav_name (str): the name of the wav file (with the .wav suffix)
+        yaml_content (list[dict]): segmentation in yaml format
+        segments (list[Segment]): resulting segmentation from pdac
+        wav_name (str): name of the wav file
 
     Returns:
-        list[dict]: the content of the segmentation yaml
+        list[dict]: extended segmentation in yaml format
     """
-    talk_segments = []
-    for ind in indices:
-        size = len(ind) / TARGET_SAMPLE_RATE
-        if size < NOISE_THRESHOLD:
-            continue
-        start = ind[0] / TARGET_SAMPLE_RATE
-        talk_segments.append(
+    for sgm in segments:
+        yaml_content.append(
             {
-                "duration": round(size, 6),
-                "offset": round(start, 6),
+                "duration": sgm.duration,
+                "offset": sgm.offset,
                 "rW": 0,
                 "uW": 0,
                 "speaker_id": "NA",
                 "wav": wav_name,
             }
         )
-    return talk_segments
+    return yaml_content
 
 
 def segment(args):
@@ -210,7 +186,7 @@ def segment(args):
     sfc_model.load_state_dict(checkpoint["state_dict"])
     sfc_model.eval()
 
-    all_segments = []
+    yaml_content = []
     for wav_path in tqdm(sorted(list(Path(args.path_to_wavs).glob("*.wav")))):
 
         # initialize a dataset for the fixed segmentation
@@ -245,24 +221,24 @@ def segment(args):
                 sgm_frame_probs += probs
 
         sgm_frame_probs /= args.inference_times
-        
-        # apply the probabilistic dac to the segmentation frame probabilities
-        indices = probabilistic_dac(
+
+        segments = pdac(
             sgm_frame_probs,
             args.dac_max_segment_length,
             args.dac_min_segment_length,
             args.dac_threshold,
         )
-        segments = produce_segmentation(indices, wav_path.name)
-        all_segments.extend(segments)
+
+        yaml_content = update_yaml_content(yaml_content, segments, wav_path.name)
 
     path_to_segmentation_yaml = Path(args.path_to_segmentation_yaml)
     path_to_segmentation_yaml.parent.mkdir(parents=True, exist_ok=True)
     with open(path_to_segmentation_yaml, "w") as f:
-        yaml.dump(all_segments, f, default_flow_style=True)
+        yaml.dump(yaml_content, f, default_flow_style=True)
 
     print(
-        f"Saved hybrid-supervised segmentation with max-segmenth-length={args.dac_max_segment_length} at {path_to_segmentation_yaml}"
+        f"Saved SHAS segmentation with max={args.dac_max_segment_length} & "
+        f"min={args.dac_min_segment_length} at {path_to_segmentation_yaml}"
     )
 
 
@@ -302,7 +278,7 @@ if __name__ == "__main__":
         type=int,
         default=20,
         help="segment length (in seconds) of fixed-length segmentation during inference"
-            "with audio-frame-classifier",
+        "with audio-frame-classifier",
     )
     parser.add_argument(
         "--inference_times",
@@ -310,7 +286,7 @@ if __name__ == "__main__":
         type=int,
         default=1,
         help="how many times to apply inference on different fixed-length segmentations"
-            "of each wav",
+        "of each wav",
     )
     parser.add_argument(
         "--dac_max_segment_length",
@@ -318,7 +294,7 @@ if __name__ == "__main__":
         type=float,
         default=18,
         help="the segmentation algorithm splits until all segments are below this value"
-            "(in seconds)",
+        "(in seconds)",
     )
     parser.add_argument(
         "--dac_min_segment_length",
@@ -326,7 +302,7 @@ if __name__ == "__main__":
         type=float,
         default=0.2,
         help="a split by the algorithm is carried out only if the resulting two segments"
-            "are above this value (in seconds)",
+        "are above this value (in seconds)",
     )
     parser.add_argument(
         "--dac_threshold",
@@ -334,7 +310,7 @@ if __name__ == "__main__":
         type=float,
         default=0.5,
         help="after each split by the algorithm, the resulting segments are trimmed to"
-            "the first and last points that corresponds to a probability above this value",
+        "the first and last points that corresponds to a probability above this value",
     )
     args = parser.parse_args()
 
