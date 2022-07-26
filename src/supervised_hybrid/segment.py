@@ -189,42 +189,64 @@ def segment(args):
     ).to(device)
     sfc_model.load_state_dict(checkpoint["state_dict"])
     sfc_model.eval()
+    
+    cache_dir = None
+    if args.cache_probabilities_dir:
+        cache_dir = Path(args.cache_probabilities_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+    is_mustc = True
+    file_paths = list(Path(args.path_to_wavs).glob("*.wav"))
+    if is_mustc:
+        int_ids = [int(file_path.stem.split("_")[1]) for file_path in file_paths]
+        file_paths = [file_path for _, file_path in sorted(zip(int_ids, file_paths))]
+    else:
+        file_paths = sorted(file_paths)
 
     yaml_content = []
-    for wav_path in tqdm(sorted(list(Path(args.path_to_wavs).glob("*.wav")))):
+    for wav_path in tqdm(file_paths):
 
-        # initialize a dataset for the fixed segmentation
-        dataset = FixedSegmentationDatasetNoTarget(
-            wav_path, args.inference_segment_length, args.inference_times
-        )
-        sgm_frame_probs = None
+        if cache_dir is not None and (cache_dir / f"{wav_path.stem}.npy").is_file():
+            print(f"Found cache probabilties for {wav_path.name}")
+            sgm_frame_probs = np.load(cache_dir / f"{wav_path.stem}.npy")
 
-        for inference_iteration in range(args.inference_times):
-
-            # create a dataloader for this fixed-length segmentation of the wav file
-            dataset.fixed_length_segmentation(inference_iteration)
-            dataloader = DataLoader(
-                dataset,
-                batch_size=args.inference_batch_size,
-                num_workers=min(cpu_count() // 2, 4),
-                shuffle=False,
-                drop_last=False,
-                collate_fn=segm_collate_fn,
+        else:
+            print(f"Doing inference with SFC for {wav_path.name}")
+            # initialize a dataset for the fixed segmentation
+            dataset = FixedSegmentationDatasetNoTarget(
+                wav_path, args.inference_segment_length, args.inference_times
             )
+            sgm_frame_probs = None
 
-            # get frame segmentation frame probabilities in the output space
-            probs, _ = infer(
-                wav2vec_model,
-                sfc_model,
-                dataloader,
-                device,
-            )
-            if sgm_frame_probs is None:
-                sgm_frame_probs = probs.copy()
-            else:
-                sgm_frame_probs += probs
+            for inference_iteration in range(args.inference_times):
 
-        sgm_frame_probs /= args.inference_times
+                # create a dataloader for this fixed-length segmentation of the wav file
+                dataset.fixed_length_segmentation(inference_iteration)
+                dataloader = DataLoader(
+                    dataset,
+                    batch_size=args.inference_batch_size,
+                    num_workers=min(cpu_count() // 2, 4),
+                    shuffle=False,
+                    drop_last=False,
+                    collate_fn=segm_collate_fn,
+                )
+
+                # get frame segmentation frame probabilities in the output space
+                probs, _ = infer(
+                    wav2vec_model,
+                    sfc_model,
+                    dataloader,
+                    device,
+                )
+                if sgm_frame_probs is None:
+                    sgm_frame_probs = probs.copy()
+                else:
+                    sgm_frame_probs += probs
+
+            sgm_frame_probs /= args.inference_times
+            
+            if cache_dir is not None:
+                np.save(cache_dir / f"{wav_path.stem}.npy", sgm_frame_probs)
 
         segments = pdac(
             sgm_frame_probs,
@@ -315,6 +337,13 @@ if __name__ == "__main__":
         default=0.5,
         help="after each split by the algorithm, the resulting segments are trimmed to"
         "the first and last points that corresponds to a probability above this value",
+    )
+    parser.add_argument(
+        "--cache-probabilities-dir",
+        "-cache",
+        type=str,
+        default="",
+        help="the directory with the cache probabilities from the inference function"
     )
     args = parser.parse_args()
 
