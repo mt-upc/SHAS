@@ -45,7 +45,11 @@ def trim(sgm: Segment, threshold: float) -> Segment:
     Returns:
         Segment: new reduced segment
     """
-    included_indices = np.where(sgm.probs > threshold)[0]
+    included_indices = np.where(sgm.probs >= threshold)[0]
+    
+    # return empty segment
+    if not len(included_indices):
+        return Segment(sgm.start, sgm.start, np.empty([0]))
 
     i = included_indices[0]
     j = included_indices[-1] + 1
