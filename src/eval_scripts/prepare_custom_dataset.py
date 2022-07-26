@@ -40,7 +40,7 @@ class CustomDataset(Dataset):
 
         # Load audio segments
         with open(path_to_yaml) as f:
-            segments = yaml.load(f, Loader=yaml.BaseLoader)
+            segments = yaml.load(f, Loader=yaml.CLoader)
 
         # (str -> float) to have a correct sorting of the segments for each talk
         for i, segm in enumerate(segments):

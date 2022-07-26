@@ -87,7 +87,7 @@ def original_segmentation_to_xml(
     path_to_output = Path(path_to_output)
 
     with open(path_to_yaml, "r") as yaml_file:
-        segmentation = yaml.load(yaml_file, Loader=yaml.BaseLoader)
+        segmentation = yaml.load(yaml_file, Loader=yaml.CLoader)
 
     with open(path_to_src_txt, "r") as src_lang_file:
         src_lang_text = src_lang_file.read().splitlines()
