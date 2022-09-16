@@ -330,7 +330,7 @@ def get_wav2vec_preds_for_wav(
                 i += 1
 
     tokens_preds = processor.tokenizer.convert_ids_to_tokens(all_preds)
-    predictions = "".join(["0" if char == "<pad>" else "1" for char in tokens_preds])
+    predictions = "".join(["0" if char == processor.tokenizer.pad_token else "1" for char in tokens_preds])
 
     return predictions
 
