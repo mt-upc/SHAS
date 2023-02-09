@@ -1,6 +1,5 @@
 import argparse
 from dataclasses import dataclass
-from multiprocessing import cpu_count
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +8,7 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from constants import HIDDEN_SIZE, TARGET_SAMPLE_RATE
+from constants import HIDDEN_SIZE, TARGET_SAMPLE_RATE, NOISE_THRESHOLD
 from data import FixedSegmentationDatasetNoTarget, segm_collate_fn
 from eval import infer
 from models import SegmentationFrameClassifer, prepare_wav2vec
@@ -17,10 +16,18 @@ from models import SegmentationFrameClassifer, prepare_wav2vec
 
 @dataclass
 class Segment:
-    start: float
-    end: float
-    probs: np.array
-    decimal: int = 4
+    def __init__(
+        self,
+        start: float,
+        end: float,
+        probs: np.array,
+        decimal: int  = 4
+    ) -> None:
+
+        self.start = start if start < end else end
+        self.end = end
+        self.probs = probs
+        self.decimal = decimal
 
     @property
     def duration(self):
@@ -33,6 +40,15 @@ class Segment:
     @property
     def offset_plus_duration(self):
         return round(self.offset + self.duration, self.decimal)
+    
+    
+def join(sgm_a: Segment, sgm_b: Segment) -> Segment:
+    sgm = Segment(
+        sgm_a.start,
+        sgm_b.end,
+        np.concatenate([sgm_a.probs, sgm_b.probs])
+    )
+    return sgm
 
 
 def trim(sgm: Segment, threshold: float) -> Segment:
@@ -45,7 +61,7 @@ def trim(sgm: Segment, threshold: float) -> Segment:
     Returns:
         Segment: new reduced segment
     """
-    included_indices = np.where(sgm.probs >= threshold)[0]
+    included_indices = np.where(sgm.probs > threshold)[0]
     
     # return empty segment
     if not len(included_indices):
@@ -57,6 +73,17 @@ def trim(sgm: Segment, threshold: float) -> Segment:
     sgm = Segment(sgm.start + i, sgm.start + j, sgm.probs[i:j])
 
     return sgm
+
+
+def split(sgm: Segment, split_idx: int) -> tuple[Segment, Segment]:
+    
+    probs_a = sgm.probs[:split_idx]
+    sgm_a = Segment(sgm.start, sgm.start + len(probs_a), probs_a)
+
+    probs_b = sgm.probs[split_idx + 1 :]
+    sgm_b = Segment(sgm_a.end + 1, sgm.end, probs_b)
+
+    return sgm_a, sgm_b
 
 
 def split_and_trim(
@@ -73,11 +100,7 @@ def split_and_trim(
         tuple[Segment, Segment]: the two resulting segments
     """
 
-    probs_a = sgm.probs[:split_idx]
-    sgm_a = Segment(sgm.start, sgm.start + len(probs_a), probs_a)
-
-    probs_b = sgm.probs[split_idx + 1 :]
-    sgm_b = Segment(sgm_a.end + 1, sgm.end, probs_b)
+    sgm_a, sgm_b = split(sgm, split_idx)
 
     sgm_a = trim(sgm_a, threshold)
     sgm_b = trim(sgm_b, threshold)
@@ -85,11 +108,51 @@ def split_and_trim(
     return sgm_a, sgm_b
 
 
+def pstrm(
+    probs: np.array,
+    max_segment_length: float,
+    min_segment_length: float,
+    threshold: float,
+) -> list[Segment]:
+    
+    max_ = int(max_segment_length * TARGET_SAMPLE_RATE)
+    min_ = int(min_segment_length * TARGET_SAMPLE_RATE)
+    
+    segments = []
+    parent_sgm = Segment(0, len(probs), probs)
+    parent_sgm = trim(parent_sgm, threshold)
+    
+    while parent_sgm.duration > 0:
+        
+        parent_split_idx = min(max_, parent_sgm.end)
+
+        sgm, parent_sgm = split(parent_sgm, parent_split_idx)
+        
+        if sgm.duration <= min_segment_length:
+            segments.append(sgm)
+            continue
+        
+        split_idx = np.argmin(sgm.probs[min_:]) + min_
+        if sgm.probs[split_idx] > threshold:
+            segments.append(sgm)
+        else:
+            sgm_a, sgm_b = split(sgm, split_idx)
+            sgm_a = trim(sgm_a, threshold)
+            segments.append(sgm_a)
+            
+            parent_sgm = join(sgm_b, parent_sgm)
+
+        parent_sgm = trim(parent_sgm, threshold)
+        
+    return segments
+
+
 def pdac(
     probs: np.array,
     max_segment_length: float,
     min_segment_length: float,
     threshold: float,
+    strict: bool = False
 ) -> list[Segment]:
     """applies the probabilistic Divide-and-Conquer algorithm to split an audio
     into segments satisfying the max-segment-length and min-segment-length conditions
@@ -118,7 +181,8 @@ def pdac(
             while j < len(sorted_indices):
                 split_idx = sorted_indices[j]
                 split_prob = sgm.probs[split_idx]
-                if split_prob > threshold:
+                
+                if not strict and (split_prob > threshold):
                     segments.append(sgm)
                     break
 
@@ -132,7 +196,17 @@ def pdac(
                     break
                 j += 1
             else:
-                segments.append(sgm)
+                if not strict:
+                    segments.append(sgm)
+                else:
+                    if (
+                        sgm_a.duration > min_segment_length
+                        and sgm_b.duration > min_segment_length
+                    ):
+                        recusrive_split(sgm_a)
+                        recusrive_split(sgm_b)
+                    else:
+                        segments.append(sgm)
 
     recusrive_split(sgm)
 
@@ -195,7 +269,7 @@ def segment(args):
         cache_dir = Path(args.cache_probabilities_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
         
-    is_mustc = True
+    is_mustc = "MUSTC" in args.path_to_wavs
     file_paths = list(Path(args.path_to_wavs).glob("*.wav"))
     if is_mustc:
         int_ids = [int(file_path.stem.split("_")[1]) for file_path in file_paths]
@@ -225,7 +299,7 @@ def segment(args):
                 dataloader = DataLoader(
                     dataset,
                     batch_size=args.inference_batch_size,
-                    num_workers=min(cpu_count() // 2, 4),
+                    num_workers=4,
                     shuffle=False,
                     drop_last=False,
                     collate_fn=segm_collate_fn,
@@ -248,12 +322,23 @@ def segment(args):
             if cache_dir is not None:
                 np.save(cache_dir / f"{wav_path.stem}.npy", sgm_frame_probs)
 
-        segments = pdac(
-            sgm_frame_probs,
-            args.dac_max_segment_length,
-            args.dac_min_segment_length,
-            args.dac_threshold,
-        )
+        if args.algorithm == "pdac":
+            segments = pdac(
+                sgm_frame_probs,
+                args.dac_max_segment_length,
+                args.dac_min_segment_length,
+                args.dac_threshold,
+                args.strict_lengths
+            )
+        else:
+            segments = pstrm(
+                sgm_frame_probs,
+                args.dac_max_segment_length,
+                args.dac_min_segment_length,
+                args.dac_threshold,
+            )
+        
+        segments = [sgm for sgm in segments if sgm.duration >= NOISE_THRESHOLD]
 
         yaml_content = update_yaml_content(yaml_content, segments, wav_path.name)
 
@@ -310,7 +395,7 @@ if __name__ == "__main__":
         "--inference_times",
         "-n",
         type=int,
-        default=1,
+        default=3,
         help="how many times to apply inference on different fixed-length segmentations"
         "of each wav",
     )
@@ -344,6 +429,18 @@ if __name__ == "__main__":
         type=str,
         default="",
         help="the directory with the cache probabilities from the inference function"
+    )
+    parser.add_argument(
+        "--strict-lengths",
+        "-strict",
+        action="store_true"
+    )
+    parser.add_argument(
+        "--algorithm",
+        "-alg",
+        type=str,
+        default="pdac",
+        choices=["pdac", "pstrm"]
     )
     args = parser.parse_args()
 
