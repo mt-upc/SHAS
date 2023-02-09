@@ -15,6 +15,4 @@ assert len(reference) == len(hypothesis)
 
 # get bleu score
 bleu = sacrebleu.corpus_bleu(hypothesis, [reference])
-ter = sacrebleu.corpus_ter(hypothesis, [reference])
 print(bleu)
-print(ter)

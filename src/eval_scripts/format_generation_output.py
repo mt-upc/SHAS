@@ -1,8 +1,7 @@
 import argparse
-from pathlib import Path
 
 
-def format_generation_output(path_to_generation_file: Path) -> None:
+def format_generation_output(args) -> None:
     """
     Parses the txt with the generation output from fairseq-generate
     and creates a new txt file with only the generated translations.
@@ -12,7 +11,7 @@ def format_generation_output(path_to_generation_file: Path) -> None:
     """
 
     raw_generation, correct_order = [], []
-    with open(path_to_generation_file, "r", encoding="utf8") as f:
+    with open(args.path_to_generation_file, "r", encoding="utf8") as f:
         for line in f.read().splitlines():
             if line[:2] == "D-":
                 correct_order.append(int(line.split(maxsplit=1)[0].split("D-")[-1]))
@@ -26,27 +25,35 @@ def format_generation_output(path_to_generation_file: Path) -> None:
     raw_generation = [gen for _, gen in sorted(zip(correct_order, raw_generation))]
 
     # save clean generation txt file
-    clean_generation_path = "_formatted.".join(
-        str(path_to_generation_file).rsplit(".", maxsplit=1)
-    )
-    with open(clean_generation_path, "w", encoding="utf8") as f:
+    if args.path_to_output_file is None:
+        path_to_output_file = "_formatted.".join(
+            args.path_to_generation_file.rsplit(".", maxsplit=1)
+        )
+    else:
+        path_to_output_file = args.path_to_output_file
+    with open(path_to_output_file, "w", encoding="utf8") as f:
         for line in raw_generation:
             f.write(line + "\n")
 
-    print(f"Saved formatted generation at {clean_generation_path}")
+    print(f"Saved formatted generation at {path_to_output_file}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--path_to_generation",
+        "--path_to_generation_file",
         "-p",
         required=True,
         type=str,
-        help="Path to a generation file or a directory with generation files.",
+        help="File to the fairseq generate.",
+    )
+    parser.add_argument(
+        "--path_to_output_file",
+        "-o",
+        default=None,
+        type=str,
+        help="File to save the formatted translations.",
     )
     args = parser.parse_args()
 
-    path_to_generation = Path(args.path_to_generation)
-
-    format_generation_output(path_to_generation)
+    format_generation_output(args)
