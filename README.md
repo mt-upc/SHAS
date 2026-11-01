@@ -51,8 +51,12 @@ conda activate shas
 
 Download one of the available pre-trained segmentation frame classifiers required for the SHAS method:
 
-|[English](https://drive.google.com/u/0/uc?export=download&confirm=DOjP&id=1Y7frjVkB_85snZYHTn0PQQG_kC5afoYN)|[Spanish](https://drive.google.com/u/0/uc?export=download&confirm=BlwG&id=1f73JKIv9Z7YarIHNhxABm8H3H4dXygwC)|[French](https://drive.google.com/u/0/uc?export=download&confirm=ljlD&id=14g7CjT3c9ZZC4tjjxPva1tI9tyh4hChK)|[Italian](https://drive.google.com/u/0/uc?export=download&confirm=6j54&id=1NNd07bsRD_uNi3c4yE4kmlU3X2NNCP69)|[Portuguese](https://drive.google.com/u/0/uc?export=download&confirm=TwFA&id=1JJ7prHW7S-xKD8KkOKVK0RnJzN7QOJ7h)|[Multilingual](https://drive.google.com/u/0/uc?export=download&confirm=x9hB&id=1GzwhzbHBFtwDmQPKoDOdAfESvWBrv_wB)|
+|[English](https://drive.google.com/file/d/1KuyVwC4NuEgaC_fyjctTctcG4eibyLJA/view)|Spanish|French|Italian|Portuguese|Multilingual|
 |---|---|---|---|---|---|
+
+Or from the command line: `gdown 1KuyVwC4NuEgaC_fyjctTctcG4eibyLJA` (English).
+
+Note: the Spanish, French, Italian, Portuguese and Multilingual checkpoints are currently unavailable (see [#7](https://github.com/mt-upc/SHAS/issues/7)). You can train your own with the instructions [here](#train-a-segmentation-frame-classifier-sfc-model).
 
 Make sure that the audio files you want to segment are in .wav format, mono, and sampled at 16kHz. You can convert them with:
 
